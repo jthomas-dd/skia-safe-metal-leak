@@ -51,10 +51,9 @@ mod tests {
         let memory_base = get_virtual_memory_mb();
         let pixels = vec![0; WIDTH as usize * HEIGHT as usize * 4];
         let mut sample_count = 0;
-        let mut image = None;
         loop {
             let t_start = std::time::Instant::now();
-            image = canvas.draw_raw_rgb_scale(0, 0, WIDTH, HEIGHT, 1, Some(&pixels), image);
+            canvas.draw_raw_rgb_scale(0, 0, WIDTH, HEIGHT, 1, &pixels);
             let t_frame_elapsed = std::time::Instant::now() - t_start;
             if MS_PER_FRAME > t_frame_elapsed {
                 let t_sleep = MS_PER_FRAME - t_frame_elapsed;
