@@ -39,11 +39,18 @@ mod tests {
     }
 
     fn draw_for_time(canvas: &mut Canvas, t_begin: std::time::Instant) {
+        use textplots::{Chart, Plot, Shape};
+
+        // Make sure initial VMem is cached.
+
+        let mut memory_usage_data = vec![];
+        let mut memory_increase = vec![];
+
         const SECONDS_TO_RUN: std::time::Duration = std::time::Duration::from_millis(5000);
         let mut t_last_memory_profile = std::time::Instant::now();
         let memory_base = get_virtual_memory_mb();
-        let mut memory_increase: Option<f64> = None;
         let pixels = vec![0; WIDTH as usize * HEIGHT as usize * 4];
+        let mut sample_count = 0;
         loop {
             let t_start = std::time::Instant::now();
             canvas.draw_raw_rgb_scale(0, 0, WIDTH, HEIGHT, 1, &pixels);
@@ -54,19 +61,12 @@ mod tests {
             }
 
             let time_since_memory_profile = std::time::Instant::now() - t_last_memory_profile;
-            if time_since_memory_profile > std::time::Duration::from_millis(1000) {
-                let vmem_increase = get_virtual_memory_mb() - memory_base;
-                if let Some(last_memory_increase) = memory_increase {
-                    // Fail test, a memory leak has been detected!
-                    assert!((vmem_increase - last_memory_increase) < MEMORY_LEAK_THRESHOLD);
-                } else {
-                    memory_increase = Some(vmem_increase);
-                }
-                println!(
-                    "Memory Usage: {} MB, diff: {}",
-                    get_virtual_memory_mb(),
-                    vmem_increase
-                );
+            let virtual_memory_now = get_virtual_memory_mb();
+            let vmem_increase = virtual_memory_now - memory_base;
+            memory_increase.push(vmem_increase);
+            if time_since_memory_profile > std::time::Duration::from_millis(500) {
+                sample_count += 1;
+                memory_usage_data.push((sample_count as f32, virtual_memory_now as f32));
                 t_last_memory_profile = std::time::Instant::now();
             }
 
@@ -75,6 +75,21 @@ mod tests {
                 break;
             }
         }
+        Chart::default()
+            .lineplot(&Shape::Lines(&memory_usage_data))
+            .display();
+
+        // Get average of memory_usage_data
+        let mut total = 0.0;
+        for vmem_inc in &memory_increase {
+            total += *vmem_inc as f64;
+        }
+        let average_memory_leak = total / memory_increase.len() as f64;
+        println!(
+            "Average memory leaked per sample period: {} MB",
+            average_memory_leak
+        );
+        assert!(average_memory_leak < MEMORY_LEAK_THRESHOLD);
     }
     #[test]
     #[serial]
