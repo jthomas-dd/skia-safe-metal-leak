@@ -5,7 +5,7 @@ use skia_safe::{
         mtl::{self, BackendContext},
         DirectContext,
     },
-    Color, Paint, SamplingOptions, Surface,
+    Color, Image, Paint, SamplingOptions, Surface,
 };
 use std::mem;
 use std::ptr;
@@ -130,8 +130,9 @@ impl Canvas {
         w: u32,
         h: u32,
         scale: u32,
-        pixels: &[u8],
-    ) -> bool {
+        pixels: Option<&[u8]>,
+        image: Option<Image>,
+    ) -> Option<Image> {
         fn draw_raw_rgb_scale_internal(
             canvas: &mut Canvas,
             x: i32,
@@ -139,8 +140,9 @@ impl Canvas {
             w: u32,
             h: u32,
             scale: u32,
-            pixels: &[u8],
-        ) -> bool {
+            pixels: Option<&[u8]>,
+            image: Option<Image>,
+        ) -> Option<Image> {
             let span = span!(Level::INFO, "Canvas::draw_raw_rgb_scale");
             let _guard = span.enter();
             let info = skia_safe::ImageInfo::new(
@@ -153,27 +155,33 @@ impl Canvas {
             // Pixels must live as long as sdata, which is clearly
             // evident in this operation. Not sure why they didn't
             // use lifetimes and require we use unsafe...
-            let sdata = unsafe { skia_safe::Data::new_bytes(pixels) };
-            let image = skia_safe::Image::from_raster_data(
-                &info,
-                sdata,
-                w as usize * mem::size_of::<u32>(),
-            );
-            if image.is_none() {
-                event!(
-                    Level::ERROR,
-                    "Failed to create image from raster data, {}, {}",
-                    pixels.len(),
-                    w as usize * mem::size_of::<u32>()
+            let image = if let Some(image) = image {
+                Some(image)
+            } else if let Some(pixels) = pixels {
+                let sdata = unsafe { skia_safe::Data::new_bytes(pixels) };
+                let image = skia_safe::Image::from_raster_data(
+                    &info,
+                    sdata,
+                    w as usize * mem::size_of::<u32>(),
                 );
-                return false;
+                image
+            } else {
+                None
+            };
+
+            if image.is_none() {
+                event!(Level::ERROR, "Failed to create image from raster data.");
+                return None;
             }
-            let result = canvas.draw_image_scale(&image.unwrap(), x, y, scale);
+            let image = image.unwrap();
+            let result = canvas.draw_image_scale(&image, x, y, scale);
             event!(Level::TRACE, "Draw image scale: {}", result);
-            result
+            Some(image)
         }
         #[cfg(target_os = "macos")]
-        return autoreleasepool(|| draw_raw_rgb_scale_internal(self, x, y, w, h, scale, pixels));
+        return autoreleasepool(|| {
+            draw_raw_rgb_scale_internal(self, x, y, w, h, scale, pixels, image)
+        });
         #[cfg(not(target_os = "macos"))]
         draw_raw_rgb_scale_internal(self, x, y, w, h, scale, pixels)
     }
